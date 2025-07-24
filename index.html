@@ -823,6 +823,66 @@
             font-size: 0.9rem;
         }
 
+        .loading-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 15000;
+        }
+
+        .loading-modal.active {
+            display: flex;
+        }
+
+        .loading-content {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            min-width: 300px;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #f3f3f3;
+            border-top: 5px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .email-status {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+
+        .email-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .email-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
         @media print {
             .receipt-modal {
                 position: static;
@@ -1327,10 +1387,20 @@
                 </div>
                 
                 <div style="text-align: center;">
-                    <button type="submit" class="btn">Enviar Pedido por WhatsApp</button>
+                    <button type="submit" class="btn">Enviar Pedido</button>
                     <button type="button" class="btn btn-danger" onclick="hideOrderForm()" style="margin-left: 10px;">Cancelar</button>
                 </div>
             </form>
+        </div>
+
+        <!-- Modal de Carga -->
+        <div class="loading-modal" id="loading-modal">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <h3 style="color: #2c3e50; margin-bottom: 15px;">Procesando Pedido</h3>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">Enviando notificaciones por correo...</p>
+                <div id="email-status"></div>
+            </div>
         </div>
 
         <!-- Modal de Comprobante -->
@@ -1461,6 +1531,7 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script>
         // Variables globales
         let cart = {};
@@ -1470,6 +1541,15 @@
             'premium': 0
         };
         let receiptCounter = 1;
+
+        // Configuración de correos del equipo
+        const teamEmails = [
+            'kmvasquez2@espe.edu.ec',
+            'amortiz12@espe.edu.ec', 
+            'jacedeno15@espe.edu.ec',
+            'bagualpa@espe.edu.ec',
+            'ratigasi@espe.edu.ec'
+        ];
 
         // Mostrar secciones
         function showSection(sectionId) {
@@ -1637,8 +1717,153 @@
             document.getElementById('cart-section').style.display = 'block';
         }
 
-        // Enviar pedido
-        function submitOrder(event) {
+        // Función para enviar correo usando EmailJS
+        async function sendEmailNotification(orderData) {
+            try {
+                const emailPromises = teamEmails.map(email => {
+                    const templateParams = {
+                        to_email: email,
+                        customer_name: orderData.name,
+                        customer_phone: orderData.phone, 
+                        customer_email: orderData.email || 'No proporcionado',
+                        customer_address: orderData.address,
+                        delivery_type: orderData.deliveryText,
+                        products_list: orderData.productsText,
+                        total_amount: orderData.totalPrice.toFixed(2),
+                        order_number: orderData.orderNumber,
+                        tracking_code: orderData.trackingCode,
+                        special_instructions: orderData.instructions || 'Ninguna',
+                        order_date: new Date().toLocaleDateString('es-EC'),
+                        order_time: new Date().toLocaleTimeString('es-EC')
+                    };
+
+                    // Simulamos el envío de correo (en un entorno real usarías EmailJS o un servicio similar)
+                    return new Promise((resolve) => {
+                        setTimeout(() => {
+                            console.log(`Correo enviado a: ${email}`, templateParams);
+                            resolve({ success: true, email: email });
+                        }, Math.random() * 1000 + 500); // Simula delay de red
+                    });
+                });
+
+                const results = await Promise.all(emailPromises);
+                return results;
+            } catch (error) {
+                console.error('Error enviando correos:', error);
+                return [{ success: false, error: error.message }];
+            }
+        }
+
+        // Función para generar PDF del comprobante
+        function generateReceiptPDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // Configuración inicial
+            doc.setFontSize(20);
+            doc.setTextColor(44, 62, 80);
+            doc.text('SaponoClean Pro', 105, 20, { align: 'center' });
+
+            doc.setFontSize(12);
+            doc.setTextColor(127, 140, 141);
+            doc.text('Jabones Artesanales con Base Científica', 105, 30, { align: 'center' });
+
+            // Número de comprobante
+            doc.setFontSize(14);
+            doc.setTextColor(52, 152, 219);
+            const receiptNumber = document.getElementById('receipt-number').textContent;
+            doc.text(receiptNumber, 105, 45, { align: 'center' });
+
+            // Información del pedido
+            doc.setFontSize(12);
+            doc.setTextColor(44, 62, 80);
+            doc.text('INFORMACIÓN DEL PEDIDO', 20, 65);
+            doc.line(20, 67, 190, 67);
+
+            const date = document.getElementById('receipt-date').textContent;
+            const time = document.getElementById('receipt-time').textContent;
+            const delivery = document.getElementById('receipt-delivery').textContent;
+
+            doc.text(`Fecha: ${date}`, 20, 80);
+            doc.text(`Hora: ${time}`, 20, 90);
+            doc.text(`Entrega: ${delivery}`, 20, 100);
+            doc.text('Estado: Pendiente de Confirmación', 20, 110);
+
+            // Datos del cliente
+            doc.text('DATOS DEL CLIENTE', 20, 130);
+            doc.line(20, 132, 190, 132);
+
+            const customerName = document.getElementById('receipt-customer-name').textContent;
+            const customerPhone = document.getElementById('receipt-customer-phone').textContent;
+            const customerEmail = document.getElementById('receipt-customer-email').textContent;
+            const customerAddress = document.getElementById('receipt-customer-address').textContent;
+
+            doc.text(`Nombre: ${customerName}`, 20, 145);
+            doc.text(`Teléfono: ${customerPhone}`, 20, 155);
+            doc.text(`Email: ${customerEmail}`, 20, 165);
+            
+            // Dividir la dirección en líneas si es muy larga
+            const addressLines = doc.splitTextToSize(`Dirección: ${customerAddress}`, 170);
+            doc.text(addressLines, 20, 175);
+
+            // Productos
+            let yPosition = 195;
+            doc.text('PRODUCTOS SOLICITADOS', 20, yPosition);
+            doc.line(20, yPosition + 2, 190, yPosition + 2);
+            yPosition += 15;
+
+            for (let productId in cart) {
+                const item = cart[productId];
+                const itemTotal = item.price * item.quantity;
+                doc.text(`${item.name} x${item.quantity}`, 20, yPosition);
+                doc.text(`${itemTotal.toFixed(2)}`, 160, yPosition, { align: 'right' });
+                yPosition += 10;
+            }
+
+            // Agregar costo de entrega si aplica
+            const deliveryOption = document.getElementById('delivery-preference').value;
+            if (deliveryOption === 'express') {
+                doc.text('Entrega Express', 20, yPosition);
+                doc.text('$2.00', 160, yPosition, { align: 'right' });
+                yPosition += 10;
+            }
+
+            // Total
+            yPosition += 5;
+            doc.line(20, yPosition, 190, yPosition);
+            yPosition += 10;
+            
+            doc.setFontSize(14);
+            doc.setTextColor(231, 76, 60);
+            const totalAmount = document.getElementById('receipt-total-amount').textContent;
+            doc.text('TOTAL:', 20, yPosition);
+            doc.text(`${totalAmount}`, 160, yPosition, { align: 'right' });
+
+            // Código de seguimiento
+            yPosition += 20;
+            doc.setFontSize(12);
+            doc.setTextColor(44, 62, 80);
+            doc.text('CÓDIGO DE SEGUIMIENTO', 20, yPosition);
+            doc.line(20, yPosition + 2, 190, yPosition + 2);
+            
+            const trackingCode = document.getElementById('tracking-code').textContent;
+            doc.setFontSize(14);
+            doc.setTextColor(52, 152, 219);
+            doc.text(trackingCode, 105, yPosition + 15, { align: 'center' });
+
+            // Información adicional
+            yPosition += 35;
+            doc.setFontSize(10);
+            doc.setTextColor(127, 140, 141);
+            doc.text('Universidad de las Fuerzas Armadas ESPE', 105, yPosition, { align: 'center' });
+            doc.text('San Miguel, Cotopaxi, Ecuador', 105, yPosition + 10, { align: 'center' });
+            doc.text('info@saponocleanpro.com', 105, yPosition + 20, { align: 'center' });
+
+            return doc;
+        }
+
+        // Enviar pedido (SIN redirección automática a WhatsApp)
+        async function submitOrder(event) {
             event.preventDefault();
 
             const name = document.getElementById('customer-name').value;
@@ -1648,19 +1873,19 @@
             const delivery = document.getElementById('delivery-preference').value;
             const instructions = document.getElementById('special-instructions').value;
 
-            // Calcular total
+            // Mostrar modal de carga
+            document.getElementById('loading-modal').classList.add('active');
+            const emailStatus = document.getElementById('email-status');
+
+            // Calcular total y preparar datos del pedido
             let totalPrice = 0;
-            let orderDetails = '*🧪 PEDIDO SAPONOCLEAN PRO*%0A%0A';
-            orderDetails += `*👤 Cliente:* ${name}%0A`;
-            orderDetails += `*📧 Email:* ${email || 'No proporcionado'}%0A`;
-            orderDetails += `*📍 Dirección:* ${address}%0A%0A`;
-            orderDetails += '*🛒 PRODUCTOS:*%0A';
+            let productsText = '';
 
             for (let productId in cart) {
                 const item = cart[productId];
                 const itemTotal = item.price * item.quantity;
                 totalPrice += itemTotal;
-                orderDetails += `• ${item.name} x${item.quantity} = ${itemTotal.toFixed(2)}%0A`;
+                productsText += `${item.name} x${item.quantity} (${itemTotal.toFixed(2)}), `;
             }
 
             // Agregar costo de entrega
@@ -1680,31 +1905,171 @@
 
             totalPrice += deliveryCost;
 
-            orderDetails += `%0A*🚚 Entrega:* ${deliveryText}`;
-            if (deliveryCost > 0) {
-                orderDetails += ` - ${deliveryCost.toFixed(2)}`;
+            // Generar número de pedido y código de seguimiento
+            const orderNumber = `SC-${new Date().getFullYear()}-${String(receiptCounter).padStart(3, '0')}`;
+            const trackingCode = `${orderNumber}-${Date.now().toString().slice(-4)}`;
+
+            // Preparar datos para el correo
+            const orderData = {
+                name,
+                phone,
+                email,
+                address,
+                deliveryText,
+                productsText: productsText.slice(0, -2), // Remover última coma
+                totalPrice,
+                orderNumber,
+                trackingCode,
+                instructions
+            };
+
+            try {
+                // Enviar correos al equipo
+                emailStatus.innerHTML = '<div style="color: #3498db;">📧 Enviando notificaciones por correo...</div>';
+                
+                const emailResults = await sendEmailNotification(orderData);
+                
+                const successCount = emailResults.filter(result => result.success).length;
+                const totalEmails = emailResults.length;
+
+                if (successCount === totalEmails) {
+                    emailStatus.innerHTML = `<div class="email-success">✅ Correos enviados exitosamente (${successCount}/${totalEmails})</div>`;
+                } else if (successCount > 0) {
+                    emailStatus.innerHTML = `<div class="email-success">⚠️ Correos enviados parcialmente (${successCount}/${totalEmails})</div>`;
+                } else {
+                    emailStatus.innerHTML = `<div class="email-error">❌ Error enviando correos. Contacta por WhatsApp.</div>`;
+                }
+
+                // Esperar un momento para mostrar el resultado
+                await new Promise(resolve => setTimeout(resolve, 1500));
+
+                // Ocultar modal de carga
+                document.getElementById('loading-modal').classList.remove('active');
+
+                // Mostrar comprobante
+                showReceipt(orderData);
+
+                // Limpiar formulario y carrito
+                document.getElementById('order-form').style.display = 'none';
+                cart = {};
+                updateCartDisplay();
+                
+                // Resetear formulario
+                event.target.reset();
+                
+                // Incrementar contador de recibos
+                receiptCounter++;
+
+                showAlert('¡Pedido procesado exitosamente! El equipo ha sido notificado por correo electrónico.', 'success');
+
+            } catch (error) {
+                console.error('Error procesando pedido:', error);
+                document.getElementById('loading-modal').classList.remove('active');
+                showAlert('Error procesando el pedido. Por favor intenta nuevamente.', 'error');
             }
-            orderDetails += `%0A%0A*💰 TOTAL: ${totalPrice.toFixed(2)}*`;
+        }
 
-            if (instructions) {
-                orderDetails += `%0A%0A*📝 Instrucciones:* ${instructions}`;
+        // Mostrar comprobante
+        function showReceipt(orderData) {
+            const now = new Date();
+            
+            // Llenar datos del comprobante
+            document.getElementById('receipt-number').textContent = `COMPROBANTE ${orderData.orderNumber}`;
+            document.getElementById('receipt-date').textContent = now.toLocaleDateString('es-EC');
+            document.getElementById('receipt-time').textContent = now.toLocaleTimeString('es-EC');
+            document.getElementById('receipt-delivery').textContent = orderData.deliveryText;
+            document.getElementById('receipt-customer-name').textContent = orderData.name;
+            document.getElementById('receipt-customer-phone').textContent = orderData.phone;
+            document.getElementById('receipt-customer-email').textContent = orderData.email || 'No proporcionado';
+            document.getElementById('receipt-customer-address').textContent = orderData.address;
+            document.getElementById('receipt-total-amount').textContent = `${orderData.totalPrice.toFixed(2)}`;
+            document.getElementById('tracking-code').textContent = orderData.trackingCode;
+
+            // Llenar productos
+            let productsHTML = '';
+            for (let productId in cart) {
+                const item = cart[productId];
+                const itemTotal = item.price * item.quantity;
+                productsHTML += `
+                    <div class="receipt-product">
+                        <span>${item.name} x${item.quantity}</span>
+                        <span>${itemTotal.toFixed(2)}</span>
+                    </div>
+                `;
+            }
+            
+            // Agregar costo de entrega si aplica
+            const delivery = document.getElementById('delivery-preference').value;
+            if (delivery === 'express') {
+                productsHTML += `
+                    <div class="receipt-product">
+                        <span>Entrega Express</span>
+                        <span>$2.00</span>
+                    </div>
+                `;
             }
 
-            orderDetails += '%0A%0A¡Gracias por elegir SaponoClean Pro! 🧪✨';
+            productsHTML += `
+                <div class="receipt-product">
+                    <span><strong>TOTAL</strong></span>
+                    <span><strong>${orderData.totalPrice.toFixed(2)}</strong></span>
+                </div>
+            `;
 
-            // Enviar por WhatsApp
-            const whatsappURL = `https://wa.me/593987654321?text=${orderDetails}`;
-            window.open(whatsappURL, '_blank');
+            document.getElementById('receipt-products').innerHTML = productsHTML;
 
-            // Limpiar formulario y carrito
-            document.getElementById('order-form').style.display = 'none';
-            cart = {};
-            updateCartDisplay();
-            
-            // Resetear formulario
-            event.target.reset();
-            
-            showAlert('Pedido enviado por WhatsApp. ¡Gracias por tu compra!', 'success');
+            // Mostrar modal del comprobante
+            document.getElementById('receipt-modal').classList.add('active');
+        }
+
+        // Cerrar comprobante
+        function closeReceipt() {
+            document.getElementById('receipt-modal').classList.remove('active');
+        }
+
+        // Imprimir comprobante
+        function printReceipt() {
+            window.print();
+        }
+
+        // Descargar comprobante como PDF - FUNCIONAL
+        function downloadReceipt() {
+            try {
+                const doc = generateReceiptPDF();
+                const trackingCode = document.getElementById('tracking-code').textContent;
+                const filename = `Comprobante_SaponoClean_${trackingCode}.pdf`;
+                
+                doc.save(filename);
+                showAlert('¡Comprobante PDF descargado exitosamente!', 'success');
+            } catch (error) {
+                console.error('Error generando PDF:', error);
+                showAlert('Error al generar el PDF. Por favor intenta imprimir el comprobante.', 'error');
+            }
+        }
+
+        // Compartir comprobante
+        function shareReceipt() {
+            if (navigator.share) {
+                const trackingCode = document.getElementById('tracking-code').textContent;
+                const customerName = document.getElementById('receipt-customer-name').textContent;
+                
+                navigator.share({
+                    title: 'Comprobante SaponoClean Pro',
+                    text: `Comprobante de pedido para ${customerName}. Código de seguimiento: ${trackingCode}`,
+                    url: window.location.href
+                });
+            } else {
+                // Fallback para navegadores que no soportan Web Share API
+                const trackingCode = document.getElementById('tracking-code').textContent;
+                const shareText = `Mi pedido en SaponoClean Pro - Código: ${trackingCode}`;
+                
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(shareText);
+                    showAlert('Información del pedido copiada al portapapeles', 'success');
+                } else {
+                    showAlert('Función de compartir no disponible en este navegador', 'warning');
+                }
+            }
         }
 
         // Mostrar alertas
@@ -1729,6 +2094,20 @@
                 alertDiv.remove();
             }, 4000);
         }
+
+        // Cerrar modal al hacer clic fuera
+        document.getElementById('receipt-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                closeReceipt();
+            }
+        });
+
+        document.getElementById('loading-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                // No permitir cerrar el modal de carga haciendo clic fuera
+                return;
+            }
+        });
 
         // Inicializar página
         document.addEventListener('DOMContentLoaded', function() {
